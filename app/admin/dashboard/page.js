@@ -38,7 +38,14 @@ export default function Dashboard() {
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch("/api/upload", { method: "POST", body: fd });
-    if (!res.ok) throw new Error(`Upload failed for ${file.name}`);
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const data = await res.json();
+        if (data?.error) detail = data.error;
+      } catch (e) {}
+      throw new Error(`Upload failed for ${file.name}: ${detail}`);
+    }
     return res.json();
   }
 

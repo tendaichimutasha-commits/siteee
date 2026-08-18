@@ -24,7 +24,15 @@ export async function POST(req) {
   const ext = file.name.includes(".") ? file.name.split(".").pop() : "bin";
   const key = `uploads/${crypto.randomBytes(12).toString("hex")}.${ext}`;
 
-  await uploadBuffer(key, buffer, file.type || "application/octet-stream");
+  try {
+    await uploadBuffer(key, buffer, file.type || "application/octet-stream");
+  } catch (err) {
+    console.error("R2/S3 upload error:", err);
+    return NextResponse.json(
+      { error: `Storage error: ${err.message || "check S3/R2 env vars are set correctly"}` },
+      { status: 500 }
+    );
+  }
 
   return NextResponse.json({
     key,
