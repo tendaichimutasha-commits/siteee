@@ -93,8 +93,12 @@ export default function Dashboard() {
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to create product");
+        let message = `HTTP ${res.status}`;
+        try {
+          const data = await res.json();
+          if (data?.error) message = data.error;
+        } catch (e) {}
+        throw new Error(message);
       }
 
       setTitle("");
