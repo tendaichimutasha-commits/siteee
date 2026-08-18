@@ -1,0 +1,48 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id              String   @id @default(cuid())
+  slug            String   @unique
+  title           String
+  description     String
+  kind            String   @default("kit") // "kit" or "beat"
+  priceCents      Int
+  currency        String   @default("USD")
+  coverImageKey   String
+  previewAudioKey String?
+  paddleProductId String?
+  paddlePriceId   String?
+  published       Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  files  ProductFile[]
+  orders Order[]
+}
+
+model ProductFile {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  key       String
+  filename  String
+  sizeBytes Int
+}
+
+model Order {
+  id                  String   @id @default(cuid())
+  productId           String
+  product             Product  @relation(fields: [productId], references: [id])
+  email               String
+  paddleTransactionId String   @unique
+  status              String   @default("pending") // pending -> paid
+  downloadToken        String   @unique
+  downloadExpiresAt    DateTime
+  createdAt           DateTime @default(now())
+}
