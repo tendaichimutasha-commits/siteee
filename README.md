@@ -1,43 +1,62 @@
 # Still Hyper — drum kit & beat store
 
-A store for selling drum kits and beats: browse, buy with a card via Paddle,
-and get a download link for the files (rar, zip, wav, mp3, individual stems —
-any file type). You upload everything yourself from a password-protected
-`/admin` panel; the price you set there is what gets charged, automatically.
+A store for selling drum kits and beats: browse, buy via ContiPay (card or
+mobile money — EcoCash, OneMoney, InnBucks, etc.), and get a download link
+for the files (rar, zip, wav, mp3, individual stems — any file type). You
+upload everything yourself from a password-protected `/admin` panel; the
+price you set there is what gets charged, automatically.
 
 ## How it works
 
 - **Storefront** (`/`) — public product grid + product pages with a preview
   player and a "Buy now" button.
-- **Checkout** — Paddle's hosted checkout overlay. Paddle handles card
-  processing, tax/VAT, and fraud checks, then pays out to your bank or PayPal
-  (Zimbabwe isn't on Stripe's list, but Paddle supports payouts there).
+- **Checkout** — the customer enters email + phone, then gets redirected to
+  a ContiPay-hosted payment page (card or mobile money), then bounced back
+  to a success page that polls until payment is confirmed.
 - **Admin** (`/admin`) — log in with one shared password, upload a kit/beat.
-  The moment you save it, the app automatically creates a matching product +
-  price in Paddle via their API, so checkout always charges exactly what you
-  typed — no manual dashboard work.
+  ContiPay doesn't need a product pre-registered like some gateways do — the
+  price you type is simply what gets charged at checkout time.
 - **Files** live in an S3-compatible bucket (Cloudflare R2 recommended — 10GB
   free, no egress fees, ideal for wav/rar files). Cover art and previews are
   public; full packages are only ever accessed through short-lived signed
   links generated after payment is confirmed.
-- **Payment confirmation** happens via a Paddle webhook, which is the only
-  thing that ever marks an order "paid" and unlocks the download — nothing
-  client-side can fake it.
+- **Payment confirmation** happens via a webhook ContiPay calls after
+  payment. Since ContiPay's exact webhook-signing scheme isn't in their
+  public docs, this app protects that endpoint a different way: each order
+  gets its own random token embedded in the webhook URL, so a request
+  without the right token can't be mistaken for a real payment confirmation.
 
-## 1. Set up the three outside accounts
+## ⚠️ Before you take real money
 
-You need three free accounts before this runs:
+I built this against ContiPay's published SDK docs and README examples —
+but I could not find their official webhook payload format, and found three
+different community SDKs with slightly different method signatures, which
+suggests the docs I could access publicly may be incomplete or dated. **Test
+thoroughly in `CONTIPAY_MODE=DEV` (their sandbox) before going live**:
 
-1. **Paddle** — [paddle.com](https://paddle.com), sign up, stay in **Sandbox**
-   mode first to test with fake cards. Go live later from the same dashboard.
-   - Developer Tools → Authentication → create an **API key** → `PADDLE_API_KEY`
-   - Developer Tools → Authentication → **Client-side token** → `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`
-   - Developer Tools → Notifications → add a webhook destination pointing to
-     `https://<your-railway-domain>/api/webhooks/paddle`, subscribe to the
-     `transaction.completed` event, copy the **secret key** → `PADDLE_WEBHOOK_SECRET`
-   - Under **Payouts**, connect your bank account or PayPal — this is where
-     your money actually lands (Paddle can't pay a card number directly,
-     only accounts).
+1. Buy a test product end-to-end and confirm you land on the success page
+   with a working download link.
+2. Check your server logs after a test payment — if you see
+   `"ContiPay webhook: unrecognized payload, order left pending"`, ContiPay
+   is sending a status field under a different name than this app expects.
+   Paste that logged payload back and the check in
+   `app/api/webhooks/contipay/route.js` can be corrected to match.
+3. If checkout creation itself fails with "ContiPay did not return a
+   redirect URL," check the logged raw response — the field name for the
+   redirect link may need adjusting in `lib/contipay.js`.
+4. Contact ContiPay support (support@contipay.co.zw) and ask them to confirm
+   the redirect-checkout response format and whether they support custom
+   webhook query parameters (needed for the token-based verification above)
+   — if they don't allow query params on the webhook URL, that check will
+   need to move to a header or POST body field instead.
+
+## 1. Set up the outside accounts
+
+1. **ContiPay** — [contipay.co.zw](https://contipay.co.zw), register and log
+   in at [docs.contipay.co.zw](https://docs.contipay.co.zw). From there:
+   - Get your **token** and **secret** → `CONTIPAY_TOKEN` / `CONTIPAY_SECRET`
+   - Get your **merchant code** → `CONTIPAY_MERCHANT_CODE`
+   - Stay in `CONTIPAY_MODE="DEV"` (their sandbox) until you've fully tested.
 
 2. **Cloudflare R2** — [dash.cloudflare.com](https://dash.cloudflare.com) → R2
    → create a bucket → make it public (Settings → Public Access) to get your
@@ -69,7 +88,10 @@ gh repo create still-hyper-store --private --source=. --push
    `.env.example` (with your real values). Leave `DATABASE_URL` alone, Railway
    already set it.
 4. **Settings** → **Networking** → **Generate Domain** to get your public URL.
-   Go back and update the Paddle webhook URL from step 1 with this domain.
+   Set `NEXT_PUBLIC_SITE_URL` to that domain (e.g.
+   `https://still-hyper-store-production.up.railway.app`) — the app builds
+   the ContiPay success/cancel/webhook URLs from this automatically, so
+   there's nothing to register on ContiPay's side manually.
 5. Railway will run `npm install`, then `npm run build` (which also runs your
    database migration), then `npm start`. First deploy takes a few minutes.
 
@@ -84,25 +106,25 @@ upload:
 - one or more downloadable files (rar, zip, wav, stems, mp3 — any mix)
 - a title, description, and price
 
-Hit **Publish** — it's now live on the storefront and buyable immediately.
+Hit **Publish** — it's now live on the storefront and buyable immediately
+(against ContiPay's sandbox until you flip `CONTIPAY_MODE` to `LIVE`).
 
 ## 5. Go live for real money
 
-While `PADDLE_ENV` / `NEXT_PUBLIC_PADDLE_ENV` are `sandbox`, all checkouts use
-fake test cards (Paddle's docs list test card numbers). When you're ready:
-
-1. In Paddle, complete their business verification to activate **Live mode**.
-2. Generate live versions of the API key, client-side token, and webhook
-   secret from live mode (they're separate from sandbox ones).
-3. Update those three Railway variables, plus set both env vars to
-   `"production"`.
+1. Complete whatever business verification ContiPay requires to activate live
+   transactions.
+2. Get your live token/secret/merchant code from ContiPay (these are
+   typically separate from sandbox credentials — confirm with their support).
+3. Update `CONTIPAY_TOKEN`, `CONTIPAY_SECRET`, `CONTIPAY_MERCHANT_CODE` in
+   Railway, and set `CONTIPAY_MODE="LIVE"`.
+4. Do one real, small test purchase yourself before announcing the store.
 
 ## Local development
 
 ```bash
 npm install
 cp .env.example .env   # fill in real values, or point DATABASE_URL at a local Postgres
-npx prisma migrate deploy
+npx prisma migrate dev --name contipay   # generates the migration for the new schema
 npm run dev
 ```
 
@@ -113,8 +135,8 @@ npm run dev
   huge packs, consider zipping stems into one rar rather than uploading
   hundreds of individual files.
 - Download links expire 7 days after purchase (see `downloadExpiresAt` in
-  `webhooks/paddle/route.js`) — change the `7 * 24 * 60 * 60 * 1000` value if
-  you want longer.
+  `app/api/webhooks/contipay/route.js`) — change the
+  `7 * 24 * 60 * 60 * 1000` value if you want longer.
 - The admin area is a single shared password, not individual accounts — fine
   for a one-person store; say the word if you ever want proper multi-user
   logins.

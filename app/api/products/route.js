@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/require-admin";
-import { createPaddleProductAndPrice } from "@/lib/paddle";
 
 export async function GET() {
   if (!requireAdmin()) {
@@ -34,28 +33,8 @@ export async function POST(req) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "")}-${Date.now().toString(36)}`;
 
-  // Automatic pricing: once a payment provider is wired up, the price you set
-  // here becomes the live checkout price instantly. Until then (Paddle isn't
-  // usable and ContiPay isn't connected yet), we skip this step so you can
-  // still catalog kits — checkout just isn't live until that's finished.
-  let paddleProductId = null;
-  let paddlePriceId = null;
-  if (process.env.PADDLE_API_KEY) {
-    try {
-      const result = await createPaddleProductAndPrice({
-        name: title,
-        description: description || title,
-        priceCents,
-        currency: currency || "USD",
-      });
-      paddleProductId = result.paddleProductId;
-      paddlePriceId = result.paddlePriceId;
-    } catch (err) {
-      console.error("Paddle price creation failed:", err);
-      // Don't block cataloging the product over a payment-provider issue.
-    }
-  }
-
+  // ContiPay doesn't need a product/price pre-registered like Paddle did —
+  // the price you set here is simply what gets charged at checkout time.
   let product;
   try {
     product = await prisma.product.create({
@@ -68,8 +47,6 @@ export async function POST(req) {
         currency: currency || "USD",
         coverImageKey,
         previewAudioKey: previewAudioKey || null,
-        paddleProductId,
-        paddlePriceId,
         files: {
           create: files.map((f) => ({
             key: f.key,

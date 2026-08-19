@@ -76,7 +76,7 @@ export default function Dashboard() {
         uploadedFiles.push(uploaded);
       }
 
-      setProgress("Creating product & Paddle price…");
+      setProgress("Creating product…");
       const res = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

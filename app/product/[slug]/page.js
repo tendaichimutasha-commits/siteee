@@ -38,10 +38,7 @@ export default async function ProductPage({ params }) {
 
           <p className="product-desc">{product.description}</p>
 
-          <BuyButton
-            paddlePriceId={product.paddlePriceId}
-            productId={product.id}
-          />
+          <BuyButton productId={product.id} />
         </div>
       </div>
     </main>
